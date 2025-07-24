@@ -1,0 +1,603 @@
+-- Script created by khal! 🌸 Please do not re-upload or redistribute without credit. 🌸
+
+-- SETTINGS
+local fov = 120
+local lockPart = "HumanoidRootPart"
+local aimbotEnabled = false
+local espEnabled = true
+local headAimEnabled = false -- replaced by aimPart selection below
+local triggerbotEnabled = false
+local bulletTpEnabled = false
+local autoReloadEnabled = false
+local speedHackEnabled = false
+local noRecoilEnabled = false
+local currentTarget = nil
+local currentTargetDistance = "N/A"
+local currentAimPartIndex = 1
+local aimPartsOptions = {"Head", "HumanoidRootPart", "LeftFoot"} -- Legs replaced by LeftFoot (Da Hood name may vary)
+local themeColors = {
+    Color3.fromRGB(255, 182, 193), -- pastel pink
+    Color3.fromRGB(255, 165, 0),   -- orange
+    Color3.fromRGB(0, 191, 255),   -- deep sky blue
+}
+local currentThemeIndex = 1
+local themeColor = themeColors[currentThemeIndex]
+
+-- SPEED HACK SETTINGS
+local normalWalkSpeed = 16
+local speedHackWalkSpeed = 40
+
+-- SERVICES
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+-- ESP DATA
+local espData = {}
+local highlightData = {}
+local nameTags = {}
+
+-- DRAW SKELETON
+local function drawLine()
+    local line = Drawing.new("Line")
+    line.Thickness = 1.5
+    line.Color = themeColor
+    line.Transparency = 1
+    line.ZIndex = 2
+    return line
+end
+
+local function createSkeleton(player)
+    if player == Players.LocalPlayer then return end
+
+    local data = {}
+    for _, bone in pairs({
+        "Head", "HumanoidRootPart", "LeftUpperLeg", "RightUpperLeg", "LeftFoot", "RightFoot"
+    }) do
+        data[bone] = drawLine()
+    end
+    espData[player] = data
+end
+
+local function removeSkeleton(player)
+    if espData[player] then
+        for _, line in pairs(espData[player]) do
+            if line then line:Remove() end
+        end
+        espData[player] = nil
+    end
+end
+
+local function updateSkeleton(player)
+    local char = player.Character
+    local lines = espData[player]
+    if not char or not lines then return end
+
+    local parts = {
+        Head = char:FindFirstChild("Head"),
+        HumanoidRootPart = char:FindFirstChild("HumanoidRootPart"),
+        LeftUpperLeg = char:FindFirstChild("LeftUpperLeg"),
+        RightUpperLeg = char:FindFirstChild("RightUpperLeg"),
+        LeftFoot = char:FindFirstChild("LeftFoot"),
+        RightFoot = char:FindFirstChild("RightFoot"),
+    }
+
+    local function draw(p1, p2, name)
+        if parts[p1] and parts[p2] and lines[name] then
+            local pos1, vis1 = Camera:WorldToViewportPoint(parts[p1].Position)
+            local pos2, vis2 = Camera:WorldToViewportPoint(parts[p2].Position)
+            if vis1 and vis2 then
+                lines[name].From = Vector2.new(pos1.X, pos1.Y)
+                lines[name].To = Vector2.new(pos2.X, pos2.Y)
+                lines[name].Visible = true
+                lines[name].Color = themeColor
+            else
+                lines[name].Visible = false
+            end
+        end
+    end
+
+    -- Example connections for skeleton lines
+    draw("Head", "HumanoidRootPart", "Head")
+    draw("HumanoidRootPart", "LeftUpperLeg", "LeftUpperLeg")
+    draw("HumanoidRootPart", "RightUpperLeg", "RightUpperLeg")
+    draw("LeftUpperLeg", "LeftFoot", "LeftFoot")
+    draw("RightUpperLeg", "RightFoot", "RightFoot")
+end
+
+-- Highlight ESP
+local function createHighlight(player)
+    if highlightData[player] then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESPHighlight"
+    highlight.FillColor = themeColor
+    highlight.OutlineColor = themeColor
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = player.Character or player
+    highlightData[player] = highlight
+end
+
+local function removeHighlight(player)
+    if highlightData[player] then
+        highlightData[player]:Destroy()
+        highlightData[player] = nil
+    end
+end
+
+-- Name Tags
+local function createNameTag(player)
+    if nameTags[player] then return end
+    local char = player.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESPNameTag"
+    billboard.Adornee = head
+    billboard.Size = UDim2.new(0, 100, 0, 30)
+    billboard.StudsOffset = Vector3.new(0, 2, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = head
+
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.Text = player.Name
+    label.TextColor3 = themeColor
+    label.TextStrokeTransparency = 0.5
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Parent = billboard
+
+    nameTags[player] = billboard
+end
+
+local function removeNameTag(player)
+    if nameTags[player] then
+        nameTags[player]:Destroy()
+        nameTags[player] = nil
+    end
+end
+
+-- Reset all ESP
+local function resetAllESP()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer then
+            removeSkeleton(player)
+            removeHighlight(player)
+            removeNameTag(player)
+            if espEnabled then
+                createSkeleton(player)
+                createHighlight(player)
+                createNameTag(player)
+            end
+        end
+    end
+end
+
+-- ESP SETUP
+local function setupESP(player)
+    if player == Players.LocalPlayer then return end
+    createSkeleton(player)
+    createHighlight(player)
+    createNameTag(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(0.2)
+        removeSkeleton(player)
+        removeHighlight(player)
+        removeNameTag(player)
+        if espEnabled then
+            createSkeleton(player)
+            createHighlight(player)
+            createNameTag(player)
+        end
+    end)
+    player.CharacterRemoving:Connect(function()
+        removeSkeleton(player)
+        removeHighlight(player)
+        removeNameTag(player)
+    end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= Players.LocalPlayer then
+        setupESP(plr)
+    end
+end
+
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= Players.LocalPlayer then
+        setupESP(plr)
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if espEnabled then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= Players.LocalPlayer and plr.Character then
+                if not espData[plr] then
+                    createSkeleton(plr)
+                end
+                updateSkeleton(plr)
+                if not highlightData[plr] then createHighlight(plr) end
+                if not nameTags[plr] then createNameTag(plr) end
+            end
+        end
+    else
+        for _, skeleton in pairs(espData) do
+            for _, line in pairs(skeleton) do
+                if line then line.Visible = false end
+            end
+        end
+        for _, highlight in pairs(highlightData) do
+            if highlight then highlight.Enabled = false end
+        end
+        for _, tag in pairs(nameTags) do
+            if tag then tag.Enabled = false end
+        end
+    end
+end)
+
+-- Helper to check if a player is a valid target based on visibility and FOV
+local function isValidTarget(player)
+    if not player or not player.Character then return false end
+    local targetPart = player.Character:FindFirstChild(aimPartsOptions[currentAimPartIndex])
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    local localHRP = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+    if not targetPart or not humanoid or humanoid.Health <= 0 or not localHRP then return false end
+
+    local screenPos, visible = Camera:WorldToViewportPoint(targetPart.Position)
+    local screenCenter = Camera.ViewportSize / 2
+    local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+
+    if not visible or distToCenter > fov then return false end
+
+    -- Raycast to check for obstructions (walls, etc.)
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {Players.LocalPlayer.Character}
+    local rayResult = Workspace:Raycast(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position).Unit * (targetPart.Position - Camera.CFrame.Position).Magnitude, rayParams)
+
+    if rayResult and rayResult.Instance and not rayResult.Instance:IsDescendantOf(player.Character) and not rayResult.Instance.Parent:IsDescendantOf(player.Character) then
+        return false -- Target is behind an obstruction
+    end
+    return true -- Target is visible and not obstructed
+end
+
+
+-- AIMBOT TARGETING (uses currentAimPartIndex)
+-- This function now strictly finds the *closest valid target* within FOV and line of sight.
+-- It does NOT consider 'currentTarget' here, as 'currentTarget' is managed by the main loop.
+local function findNewClosestTarget()
+    local bestCandidate = nil
+    local shortestDistanceToCenter = math.huge
+    local screenCenter = Camera.ViewportSize / 2
+    local localHRP = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not localHRP then return nil end
+
+    local aimPartName = aimPartsOptions[currentAimPartIndex]
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and player.Character then
+            local targetPart = player.Character:FindFirstChild(aimPartName)
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if targetPart and humanoid and humanoid.Health > 0 then
+                local screenPos, visible = Camera:WorldToViewportPoint(targetPart.Position)
+                local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+
+                if visible and distToCenter < shortestDistanceToCenter and distToCenter <= fov then
+                    -- Check if target is behind a wall
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    rayParams.FilterDescendantsInstances = {Players.LocalPlayer.Character}
+                    local rayResult = Workspace:Raycast(Camera.CFrame.Position, (targetPart.Position - Camera.CFrame.Position).Unit * (targetPart.Position - Camera.CFrame.Position).Magnitude, rayParams)
+
+                    if not rayResult or (rayResult.Instance and (rayResult.Instance:IsDescendantOf(player.Character) or rayResult.Instance.Parent:IsDescendantOf(player.Character))) then
+                        shortestDistanceToCenter = distToCenter
+                        bestCandidate = player
+                    end
+                end
+            end
+        end
+    end
+    return bestCandidate
+end
+
+-- CAM LOCK (smooth camera lock for better aimlock)
+local function camLock()
+    if currentTarget and currentTarget.Character then
+        local aimPartName = aimPartsOptions[currentAimPartIndex]
+        local targetPart = currentTarget.Character:FindFirstChild(aimPartName)
+        if targetPart then
+            local velocity = targetPart.Velocity or Vector3.new()
+            local localHRP = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local dist = localHRP and (localHRP.Position - targetPart.Position).Magnitude or 0
+            local prediction = math.clamp(0.05 + (dist / 2000), 0.02, 0.1)
+            local futurePos = targetPart.Position + velocity * prediction
+            
+            -- Direct camera manipulation for aimlock
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, futurePos), 0.25)
+        end
+    end
+end
+
+-- Speed Hack (adjust walk speed)
+RunService.RenderStepped:Connect(function()
+    local plr = Players.LocalPlayer
+    local char = plr.Character
+    if char and char:FindFirstChild("Humanoid") then
+        if speedHackEnabled then
+            char.Humanoid.WalkSpeed = speedHackWalkSpeed
+        else
+            char.Humanoid.WalkSpeed = normalWalkSpeed
+        end
+    end
+end)
+
+-- No Recoil (tries to remove recoil by resetting recoil-related values every frame)
+RunService.RenderStepped:Connect(function()
+    if noRecoilEnabled then
+        local plr = Players.LocalPlayer
+        local char = plr.Character
+        if char then
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool then
+                -- Try to find recoil related objects/properties and reset them:
+                local recoilVal = tool:FindFirstChild("Recoil") or tool:FindFirstChild("RecoilValue")
+                if recoilVal and recoilVal:IsA("NumberValue") then
+                    recoilVal.Value = 0
+                end
+
+                -- Some weapons use LocalScript recoil patterns:
+                -- This part is a generic reset of 'CameraRecoil' or similar:
+                local camRecoil = tool:FindFirstChild("CameraRecoil")
+                if camRecoil and camRecoil:IsA("NumberValue") then
+                    camRecoil.Value = 0
+                end
+            end
+        end
+    end
+end)
+
+
+-- AIMBOT + TRIGGERBOT
+RunService.RenderStepped:Connect(function()
+    local isRightClickPressed = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+
+    -- Primary logic for target acquisition and retention
+    if aimbotEnabled and isRightClickPressed then
+        -- If currentTarget is invalid or not viable, find a new one
+        if not currentTarget or not isValidTarget(currentTarget) then
+            currentTarget = findNewClosestTarget()
+        end
+
+        -- If a valid target is found, perform aimlock
+        if currentTarget and isValidTarget(currentTarget) then
+            camLock()
+            -- We no longer set MouseBehavior.LockCenter here.
+            -- Camera movement will still be possible, but the script will constantly adjust it.
+        end
+    else
+        -- When aimbot is off or right-click is released, clear target
+        currentTarget = nil
+    end
+
+    -- Update distance label
+    if currentTarget and currentTarget.Character and Players.LocalPlayer.Character then
+        local localHRP = Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local aimPartName = aimPartsOptions[currentAimPartIndex]
+        local targetPart = currentTarget.Character:FindFirstChild(aimPartName)
+        if localHRP and targetPart then
+            currentTargetDistance = math.floor((localHRP.Position - targetPart.Position).Magnitude)
+        else
+            currentTargetDistance = "N/A"
+        end
+    else
+        currentTargetDistance = "N/A"
+    end
+
+    if triggerbotEnabled then
+        if currentTarget and isValidTarget(currentTarget) then
+            -- Fire mouse click events for triggerbot
+            if pcall(function() return mouse1click end) then
+                mouse1click()
+            elseif pcall(function() return mouse1press end) then
+                mouse1press()
+                task.wait(0.02)
+                mouse1release()
+            end
+        end
+    end
+end)
+
+
+-- AUTO RELOAD (best effort, may need adjustment per weapon)
+RunService.RenderStepped:Connect(function()
+    if autoReloadEnabled then
+        local plr = Players.LocalPlayer
+        local char = plr.Character
+        if char then
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool then
+                -- Adjust these to your weapon's reload logic
+                local ammoValue = tool:FindFirstChild("Ammo") or tool:FindFirstChild("CurrentAmmo")
+                if ammoValue and ammoValue:IsA("IntValue") and ammoValue.Value <= 0 then
+                    local reloadEvent = tool:FindFirstChild("ReloadEvent") or tool:FindFirstChild("ReloadRemote")
+                    if reloadEvent and reloadEvent:IsA("RemoteEvent") then
+                        reloadEvent:FireServer()
+                    else
+                        -- fallback: try to call a reload function if exists
+                        local reloadFunc = tool:FindFirstChild("ReloadFunction")
+                        if reloadFunc and typeof(reloadFunc) == "function" then
+                            reloadFunc()
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- CHAT SPY (unchanged)
+Players.PlayerAdded:Connect(function(plr)
+    plr.Chatted:Connect(function(msg)
+        print("[ChatSpy] " .. plr.Name .. ": " .. msg)
+    end)
+end)
+for _, plr in ipairs(Players:GetPlayers()) do
+    plr.Chatted:Connect(function(msg)
+        print("[ChatSpy] " .. plr.Name .. ": " .. msg)
+    end)
+end
+
+-- GUI SETUP
+local guiVisible = true
+local toggleKey = Enum.KeyCode.Insert
+local waitingForKeyBind = false
+local rebindButton
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if waitingForKeyBind and input.UserInputType == Enum.UserInputType.Keyboard then
+        toggleKey = input.KeyCode
+        waitingForKeyBind = false
+        if rebindButton then
+            rebindButton.Text = "Menu Key: " .. toggleKey.Name
+        end
+        return
+    end
+
+    if input.KeyCode == toggleKey and not waitingForKeyBind then
+        guiVisible = not guiVisible
+        local gui = game.CoreGui:FindFirstChild("Aimlock_GUI")
+        if gui then
+            gui.Enabled = guiVisible
+        end
+    end
+end)
+
+local function createButton(name, posY, text, callback)
+    local Frame = game.CoreGui:FindFirstChild("Aimlock_GUI"):FindFirstChildOfClass("Frame")
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = UDim2.new(0, 180, 0, 22)
+    button.Position = UDim2.new(0, 10, 0, posY)
+    button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    button.BorderSizePixel = 2
+    button.BorderColor3 = themeColor
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextScaled = true
+    button.Parent = Frame
+
+    button.MouseButton1Click:Connect(function()
+        callback(button)
+    end)
+
+    return button
+end
+
+local function createGUI()
+    if game.CoreGui:FindFirstChild("Aimlock_GUI") then
+        game.CoreGui.Aimlock_GUI:Destroy()
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "Aimlock_GUI"
+    ScreenGui.Parent = game.CoreGui
+
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 200, 0, 320)
+    Frame.Position = UDim2.new(1, -220, 0, 50)
+    Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Frame.BorderSizePixel = 2
+    Frame.BorderColor3 = themeColor
+    Frame.Active = true
+    Frame.Draggable = true
+    Frame.Parent = ScreenGui
+
+    local creditLabel = Instance.new("TextLabel")
+    creditLabel.Size = UDim2.new(0, 180, 0, 20)
+    creditLabel.Position = UDim2.new(0, 10, 0, 0)
+    creditLabel.BackgroundTransparency = 1
+    creditLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    creditLabel.TextScaled = true
+    creditLabel.Text = "Welcome " .. Players.LocalPlayer.Name
+    creditLabel.Parent = Frame
+
+    createButton("AimlockToggle", 30, "Aimlock: OFF", function(button)
+        aimbotEnabled = not aimbotEnabled
+        button.Text = aimbotEnabled and "Aimlock: ON" or "Aimlock: OFF"
+    end)
+
+    createButton("AimPartToggle", 60, "Aim Part: " .. aimPartsOptions[currentAimPartIndex], function(button)
+        currentAimPartIndex = currentAimPartIndex + 1
+        if currentAimPartIndex > #aimPartsOptions then currentAimPartIndex = 1 end
+        lockPart = aimPartsOptions[currentAimPartIndex]
+        button.Text = "Aim Part: " .. aimPartsOptions[currentAimPartIndex]
+    end)
+
+    createButton("TriggerbotToggle", 90, "Triggerbot: OFF", function(button)
+        triggerbotEnabled = not triggerbotEnabled
+        button.Text = triggerbotEnabled and "Triggerbot: ON" or "Triggerbot: OFF"
+    end)
+
+    createButton("BulletTpToggle", 120, "Bullet TP: OFF", function(button)
+        bulletTpEnabled = not bulletTpEnabled
+        button.Text = bulletTpEnabled and "Bullet TP: ON" or "Bullet TP: OFF"
+    end)
+
+    createButton("AutoReloadToggle", 150, "Auto Reload: OFF", function(button)
+        autoReloadEnabled = not autoReloadEnabled
+        button.Text = autoReloadEnabled and "Auto Reload: ON" or "Auto Reload: OFF"
+    end)
+
+    createButton("SpeedHackToggle", 180, "Speed Hack: OFF", function(button)
+        speedHackEnabled = not speedHackEnabled
+        button.Text = speedHackEnabled and "Speed Hack: ON" or "Speed Hack: OFF"
+    end)
+
+    createButton("NoRecoilToggle", 210, "No Recoil: OFF", function(button)
+        noRecoilEnabled = not noRecoilEnabled
+        button.Text = noRecoilEnabled and "No Recoil: ON" or "No Recoil: OFF"
+    end)
+
+    createButton("ESPToggle", 240, "ESP: ON", function(button)
+        espEnabled = not espEnabled
+        button.Text = espEnabled and "ESP: ON" or "ESP: OFF"
+        resetAllESP()
+    end)
+
+    createButton("ThemeToggle", 270, "Change ESP Color", function(button)
+        currentThemeIndex = currentThemeIndex + 1
+        if currentThemeIndex > #themeColors then currentThemeIndex = 1 end
+        themeColor = themeColors[currentThemeIndex]
+        resetAllESP()
+    end)
+
+    rebindButton = createButton("RebindKey", 300, "Menu Key: " .. toggleKey.Name, function(button)
+        waitingForKeyBind = true
+        button.Text = "Press new key..."
+    end)
+
+    local distanceLabel = Instance.new("TextLabel")
+    distanceLabel.Size = UDim2.new(0, 180, 0, 20)
+    distanceLabel.Position = UDim2.new(0, 10, 0, 330)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    distanceLabel.TextScaled = true
+    distanceLabel.Text = "Distance: N/A"
+    distanceLabel.Parent = Frame
+
+    RunService.RenderStepped:Connect(function()
+        distanceLabel.Text = "Distance: " .. tostring(currentTargetDistance) .. "m"
+    end)
+end
+
+createGUI()
