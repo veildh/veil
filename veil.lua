@@ -7,10 +7,8 @@ local aimbotEnabled = false
 local espEnabled = true
 local headAimEnabled = false -- replaced by aimPart selection below
 local triggerbotEnabled = false
-local bulletTpEnabled = false
-local autoReloadEnabled = false
+-- Bullet TP, Auto Reload, No Recoil removed as requested
 local speedHackEnabled = false
-local noRecoilEnabled = false
 local currentTarget = nil
 local currentTargetDistance = "N/A"
 local currentAimPartIndex = 1
@@ -22,10 +20,49 @@ local themeColors = {
 }
 local currentThemeIndex = 1
 local themeColor = themeColors[currentThemeIndex]
+local guiFont = Enum.Font.GothamBold -- Added from previous version for consistent font
+local customIconAssetId = "rbxassetid://9061592305" -- Placeholder icon ID (e.g., a star or checkmark). REPLACE THIS!
+
+-- PREDICTION SETTINGS (Added back)
+local predictionOptions = {0.05, 0.1, 0.15, 0.2} -- Different prediction amounts (seconds)
+local currentPredictionIndex = 1
+local currentPredictionAmount = predictionOptions[currentPredictionIndex]
 
 -- SPEED HACK SETTINGS
 local normalWalkSpeed = 16
 local speedHackWalkSpeed = 40
+
+-- UTILITY SETTINGS
+local flyEnabled = false
+local flySpeed = 50
+
+local fakeAnimationsEnabled = false
+local defaultAnimationIds = {}
+
+local zombieAnimationSet = {
+    idle1 = "http://www.roblox.com/asset/?id=616158929",
+    idle2 = "http://www.roblox.com/asset/?id=616160636",
+    walk = "http://www.roblox.com/asset/?id=616168032",
+    run = "http://www.roblox.com/asset/?id=616163682",
+    jump = "http://www.roblox.com/asset/?id=616161997",
+    climb = "http://www.roblox.com/asset/?id=616156119",
+    fall = "http://www.roblox.com/asset/?id=616157476",
+    swimidle = "http://www.roblox.com/asset/?id=0",
+    swim = "http://www.roblox.com/asset/?id=0",
+}
+
+local customAnimationSet = {
+    idle1 = "http://www.roblox.com/asset/?id=2510196951",
+    idle2 = "http://www.roblox.com/asset/?id=2510197257",
+    walk = "http://www.roblox.com/asset/?id=2510202577",
+    run = "http://www.roblox.com/asset/?id=616163682",
+    jump = "http://www.roblox.com/asset/?id=656117878",
+    climb = "http://www.roblox.com/asset/?id=2510192778",
+    fall = "http://www.roblox.com/asset/?id=707829716",
+    swimidle = "http://www.roblox.com/asset/?id=0",
+    swim = "http://www.roblox.com/asset/?id=0",
+}
+
 
 -- SERVICES
 local RunService = game:GetService("RunService")
@@ -34,11 +71,13 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService") -- Added for Rejoin functionality
 
 -- ESP DATA
 local espData = {}
 local highlightData = {}
 local nameTags = {}
+local connections = {}
 
 -- DRAW SKELETON
 local function drawLine()
@@ -55,7 +94,7 @@ local function createSkeleton(player)
 
     local data = {}
     for _, bone in pairs({
-        "Head", "HumanoidRootPart", "LeftUpperLeg", "RightUpperLeg", "LeftFoot", "RightFoot"
+        "Head", "HumanoidRootPart", "LeftUpperLeg", "RightUpperLeg", "LeftUpperArm", "RightUpperArm", "LeftFoot", "RightFoot"
     }) do
         data[bone] = drawLine()
     end
@@ -83,6 +122,12 @@ local function updateSkeleton(player)
         RightUpperLeg = char:FindFirstChild("RightUpperLeg"),
         LeftFoot = char:FindFirstChild("LeftFoot"),
         RightFoot = char:FindFirstChild("RightFoot"),
+        LeftUpperArm = char:FindFirstChild("LeftUpperArm"),
+        RightUpperArm = char:FindFirstChild("RightUpperArm"),
+        LeftLowerArm = char:FindFirstChild("LeftLowerArm"),
+        RightLowerArm = char:FindFirstChild("RightLowerArm"),
+        LeftLowerLeg = char:FindFirstChild("LeftLowerLeg"),
+        RightLowerLeg = char:FindFirstChild("RightLowerLeg"),
     }
 
     local function draw(p1, p2, name)
@@ -100,12 +145,17 @@ local function updateSkeleton(player)
         end
     end
 
-    -- Example connections for skeleton lines
     draw("Head", "HumanoidRootPart", "Head")
     draw("HumanoidRootPart", "LeftUpperLeg", "LeftUpperLeg")
     draw("HumanoidRootPart", "RightUpperLeg", "RightUpperLeg")
     draw("LeftUpperLeg", "LeftFoot", "LeftFoot")
     draw("RightUpperLeg", "RightFoot", "RightFoot")
+    draw("HumanoidRootPart", "LeftUpperArm", "LeftUpperArm")
+    draw("HumanoidRootPart", "RightUpperArm", "RightUpperArm")
+    draw("LeftUpperArm", "LeftLowerArm", "LeftLowerArm")
+    draw("RightUpperArm", "RightLowerArm", "RightLowerArm")
+    draw("LeftUpperLeg", "LeftLowerLeg", "LeftLowerLeg")
+    draw("RightUpperLeg", "RightLowerLeg", "RightLowerLeg")
 end
 
 -- Highlight ESP
@@ -150,7 +200,7 @@ local function createNameTag(player)
     label.Text = player.Name
     label.TextColor3 = themeColor
     label.TextStrokeTransparency = 0.5
-    label.Font = Enum.Font.GothamBold
+    label.Font = guiFont
     label.TextSize = 14
     label.Parent = billboard
 
@@ -186,7 +236,7 @@ local function setupESP(player)
     createSkeleton(player)
     createHighlight(player)
     createNameTag(player)
-    player.CharacterAdded:Connect(function()
+    table.insert(connections, player.CharacterAdded:Connect(function()
         task.wait(0.2)
         removeSkeleton(player)
         removeHighlight(player)
@@ -196,12 +246,12 @@ local function setupESP(player)
             createHighlight(player)
             createNameTag(player)
         end
-    end)
-    player.CharacterRemoving:Connect(function()
+    end))
+    table.insert(connections, player.CharacterRemoving:Connect(function()
         removeSkeleton(player)
         removeHighlight(player)
         removeNameTag(player)
-    end)
+    end))
 end
 
 for _, plr in ipairs(Players:GetPlayers()) do
@@ -210,13 +260,13 @@ for _, plr in ipairs(Players:GetPlayers()) do
     end
 end
 
-Players.PlayerAdded:Connect(function(plr)
+table.insert(connections, Players.PlayerAdded:Connect(function(plr)
     if plr ~= Players.LocalPlayer then
         setupESP(plr)
     end
-end)
+end))
 
-RunService.RenderStepped:Connect(function()
+table.insert(connections, RunService.RenderStepped:Connect(function()
     if espEnabled then
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= Players.LocalPlayer and plr.Character then
@@ -241,7 +291,7 @@ RunService.RenderStepped:Connect(function()
             if tag then tag.Enabled = false end
         end
     end
-end)
+end))
 
 -- Helper to check if a player is a valid target based on visibility and FOV
 local function isValidTarget(player)
@@ -272,8 +322,6 @@ end
 
 
 -- AIMBOT TARGETING (uses currentAimPartIndex)
--- This function now strictly finds the *closest valid target* within FOV and line of sight.
--- It does NOT consider 'currentTarget' here, as 'currentTarget' is managed by the main loop.
 local function findNewClosestTarget()
     local bestCandidate = nil
     local shortestDistanceToCenter = math.huge
@@ -309,7 +357,7 @@ local function findNewClosestTarget()
     return bestCandidate
 end
 
--- CAM LOCK (smooth camera lock for better aimlock)
+-- CAM LOCK
 local function camLock()
     if currentTarget and currentTarget.Character then
         local aimPartName = aimPartsOptions[currentAimPartIndex]
@@ -318,17 +366,18 @@ local function camLock()
             local velocity = targetPart.Velocity or Vector3.new()
             local localHRP = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             local dist = localHRP and (localHRP.Position - targetPart.Position).Magnitude or 0
-            local prediction = math.clamp(0.05 + (dist / 2000), 0.02, 0.1)
-            local futurePos = targetPart.Position + velocity * prediction
             
-            -- Direct camera manipulation for aimlock
+            -- Use the selected prediction amount
+            local futurePos = targetPart.Position + velocity * currentPredictionAmount
+            
+            -- Smooth camera interpolation using Lerp
             Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, futurePos), 0.25)
         end
     end
 end
 
 -- Speed Hack (adjust walk speed)
-RunService.RenderStepped:Connect(function()
+table.insert(connections, RunService.RenderStepped:Connect(function()
     local plr = Players.LocalPlayer
     local char = plr.Character
     if char and char:FindFirstChild("Humanoid") then
@@ -338,36 +387,106 @@ RunService.RenderStepped:Connect(function()
             char.Humanoid.WalkSpeed = normalWalkSpeed
         end
     end
-end)
+end))
 
--- No Recoil (tries to remove recoil by resetting recoil-related values every frame)
-RunService.RenderStepped:Connect(function()
-    if noRecoilEnabled then
-        local plr = Players.LocalPlayer
-        local char = plr.Character
-        if char then
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool then
-                -- Try to find recoil related objects/properties and reset them:
-                local recoilVal = tool:FindFirstChild("Recoil") or tool:FindFirstChild("RecoilValue")
-                if recoilVal and recoilVal:IsA("NumberValue") then
-                    recoilVal.Value = 0
-                end
+-- Fly Functionality
+local currentFlyConnection = nil
 
-                -- Some weapons use LocalScript recoil patterns:
-                -- This part is a generic reset of 'CameraRecoil' or similar:
-                local camRecoil = tool:FindFirstChild("CameraRecoil")
-                if camRecoil and camRecoil:IsA("NumberValue") then
-                    camRecoil.Value = 0
-                end
+local function toggleFly()
+    local plr = Players.LocalPlayer
+    local char = plr.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
+    
+    flyEnabled = not flyEnabled
+
+    if flyEnabled then
+        humanoid.PlatformStand = true
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
             end
         end
+        
+        if currentFlyConnection then
+            currentFlyConnection:Disconnect()
+            currentFlyConnection = nil
+        end
+
+        currentFlyConnection = RunService.RenderStepped:Connect(function()
+            if not flyEnabled or not char or not hrp then
+                if currentFlyConnection then currentFlyConnection:Disconnect() end
+                currentFlyConnection = nil
+                return
+            end
+            
+            local moveVector = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector += Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector -= Camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector -= Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector += Camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVector += Camera.CFrame.UpVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveVector -= Camera.CFrame.UpVector end
+
+            local moveDirection = Camera.CFrame.RightVector * moveVector.X + Camera.CFrame.LookVector * moveVector.Z + Camera.CFrame.UpVector * moveVector.Y
+            moveDirection = moveDirection.Unit * flySpeed * RunService.Heartbeat:Wait()
+
+            hrp.CFrame += moveDirection
+        end)
+
+    else
+        humanoid.PlatformStand = false
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+        
+        if currentFlyConnection then
+            currentFlyConnection:Disconnect()
+            currentFlyConnection = nil
+        end
     end
-end)
+end
+
+-- Helper function to apply an animation set
+local function applyAnimationSet(animSet)
+    local plr = Players.LocalPlayer
+    local char = plr.Character
+    if not char then return end
+    local Animate = char:FindFirstChild("Animate")
+    if not Animate then return end
+
+    if animSet.idle1 then Animate.idle.Animation1.AnimationId = animSet.idle1 end
+    if animSet.idle2 then Animate.idle.Animation2.AnimationId = animSet.idle2 end
+    if animSet.walk then Animate.walk.WalkAnim.AnimationId = animSet.walk end
+    if animSet.run then Animate.run.RunAnim.AnimationId = animSet.run end
+    if animSet.jump then Animate.jump.JumpAnim.AnimationId = animSet.jump end
+    if animSet.climb then Animate.climb.ClimbAnim.AnimationId = animSet.climb end
+    if animSet.fall then Animate.fall.FallAnim.AnimationId = animSet.fall end
+    if Animate.swimidle and animSet.swimidle then Animate.swimidle.SwimIdle.AnimationId = animSet.swimidle end
+    if Animate.swim and animSet.swim then Animate.swim.Swim.AnimationId = animSet.swim end
+
+    char.Humanoid.Jump = true
+end
+
+-- Function to apply the Custom Mix
+local function applyCustomMix()
+    fakeAnimationsEnabled = true
+    applyAnimationSet(customAnimationSet)
+end
+
+-- Function to reset to default animations
+local function resetToDefaultAnimations()
+    fakeAnimationsEnabled = false
+    applyAnimationSet(defaultAnimationIds)
+end
 
 
 -- AIMBOT + TRIGGERBOT
-RunService.RenderStepped:Connect(function()
+table.insert(connections, RunService.RenderStepped:Connect(function()
     local isRightClickPressed = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 
     -- Primary logic for target acquisition and retention
@@ -380,8 +499,6 @@ RunService.RenderStepped:Connect(function()
         -- If a valid target is found, perform aimlock
         if currentTarget and isValidTarget(currentTarget) then
             camLock()
-            -- We no longer set MouseBehavior.LockCenter here.
-            -- Camera movement will still be possible, but the script will constantly adjust it.
         end
     else
         -- When aimbot is off or right-click is released, clear target
@@ -414,55 +531,75 @@ RunService.RenderStepped:Connect(function()
             end
         end
     end
-end)
-
-
--- AUTO RELOAD (best effort, may need adjustment per weapon)
-RunService.RenderStepped:Connect(function()
-    if autoReloadEnabled then
-        local plr = Players.LocalPlayer
-        local char = plr.Character
-        if char then
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool then
-                -- Adjust these to your weapon's reload logic
-                local ammoValue = tool:FindFirstChild("Ammo") or tool:FindFirstChild("CurrentAmmo")
-                if ammoValue and ammoValue:IsA("IntValue") and ammoValue.Value <= 0 then
-                    local reloadEvent = tool:FindFirstChild("ReloadEvent") or tool:FindFirstChild("ReloadRemote")
-                    if reloadEvent and reloadEvent:IsA("RemoteEvent") then
-                        reloadEvent:FireServer()
-                    else
-                        -- fallback: try to call a reload function if exists
-                        local reloadFunc = tool:FindFirstChild("ReloadFunction")
-                        if reloadFunc and typeof(reloadFunc) == "function" then
-                            reloadFunc()
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
+end))
 
 -- CHAT SPY (unchanged)
-Players.PlayerAdded:Connect(function(plr)
-    plr.Chatted:Connect(function(msg)
+table.insert(connections, Players.PlayerAdded:Connect(function(plr)
+    table.insert(connections, plr.Chatted:Connect(function(msg)
         print("[ChatSpy] " .. plr.Name .. ": " .. msg)
-    end)
-end)
+    end))
+end))
 for _, plr in ipairs(Players:GetPlayers()) do
-    plr.Chatted:Connect(function(msg)
+    table.insert(connections, plr.Chatted:Connect(function(msg)
         print("[ChatSpy] " .. plr.Name .. ": " .. msg)
-    end)
+    end))
 end
 
 -- GUI SETUP
 local guiVisible = true
 local toggleKey = Enum.KeyCode.Insert
+local unloadKey = Enum.KeyCode.F7
 local waitingForKeyBind = false
 local rebindButton
+local aimPartPopoutFrame
+local utilityPopoutFrame
 
-UserInputService.InputBegan:Connect(function(input, gpe)
+local function unloadScript()
+    for _, conn in ipairs(connections) do
+        if conn and typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        end
+    end
+    
+    local gui = game.CoreGui:FindFirstChild("Aimlock_GUI")
+    if gui then
+        gui:Destroy()
+    end
+    
+    for _, skeleton in pairs(espData) do
+        for _, line in pairs(skeleton) do
+            if line then line:Remove() end
+        end
+    end
+    for _, highlight in pairs(highlightData) do
+        if highlight then highlight:Destroy() end
+    end
+    for _, tag in pairs(nameTags) do
+        if tag then tag:Destroy() end
+    end
+
+    local plr = Players.LocalPlayer
+    local char = plr.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = normalWalkSpeed
+        char.Humanoid.PlatformStand = false
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+    
+    if currentFlyConnection then
+        currentFlyConnection:Disconnect()
+        currentFlyConnection = nil
+    end
+    
+    print("Script unloaded. All functionality disabled.")
+end
+
+
+table.insert(connections, UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if waitingForKeyBind and input.UserInputType == Enum.UserInputType.Keyboard then
         toggleKey = input.KeyCode
@@ -480,7 +617,34 @@ UserInputService.InputBegan:Connect(function(input, gpe)
             gui.Enabled = guiVisible
         end
     end
-end)
+
+    if input.KeyCode == unloadKey then
+        unloadScript()
+    end
+
+    -- Hide pop-out if clicked outside
+    if aimPartPopoutFrame and aimPartPopoutFrame.Visible then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absolutePosition = aimPartPopoutFrame.AbsolutePosition
+        local absoluteSize = aimPartPopoutFrame.AbsoluteSize
+        local mouseInFrame = mousePos.X >= absolutePosition.X and mousePos.X <= (absolutePosition.X + absoluteSize.X) and
+                             mousePos.Y >= absolutePosition.Y and mousePos.Y <= (absolutePosition.Y + absoluteSize.Y)
+        if not mouseInFrame then
+            aimPartPopoutFrame.Visible = false
+        end
+    end
+
+    if utilityPopoutFrame and utilityPopoutFrame.Visible then
+        local mousePos = UserInputService:GetMouseLocation()
+        local absolutePosition = utilityPopoutFrame.AbsolutePosition
+        local absoluteSize = utilityPopoutFrame.AbsoluteSize
+        local mouseInFrame = mousePos.X >= absolutePosition.X and mousePos.X <= (absolutePosition.X + absoluteSize.X) and
+                             mousePos.Y >= absolutePosition.Y and mousePos.Y <= (absolutePosition.Y + absoluteSize.Y)
+        if not mouseInFrame then
+            utilityPopoutFrame.Visible = false
+        end
+    end
+end))
 
 local function createButton(name, posY, text, callback)
     local Frame = game.CoreGui:FindFirstChild("Aimlock_GUI"):FindFirstChildOfClass("Frame")
@@ -494,11 +658,32 @@ local function createButton(name, posY, text, callback)
     button.Text = text
     button.TextColor3 = Color3.fromRGB(255, 255, 255)
     button.TextScaled = true
+    button.Font = guiFont
     button.Parent = Frame
 
-    button.MouseButton1Click:Connect(function()
+    table.insert(connections, button.MouseButton1Click:Connect(function()
         callback(button)
-    end)
+    end))
+
+    return button
+end
+
+local function createPopoutButton(parentFrame, name, text, callback)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = UDim2.new(1, 0, 0, 22)
+    button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    button.BorderSizePixel = 2
+    button.BorderColor3 = themeColor
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextScaled = true
+    button.Font = guiFont
+    button.Parent = parentFrame
+
+    table.insert(connections, button.MouseButton1Click:Connect(function()
+        callback(button)
+    end))
 
     return button
 end
@@ -511,6 +696,7 @@ local function createGUI()
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "Aimlock_GUI"
     ScreenGui.Parent = game.CoreGui
+    ScreenGui.DisplayOrder = 999
 
     local Frame = Instance.new("Frame")
     Frame.Size = UDim2.new(0, 200, 0, 320)
@@ -522,82 +708,232 @@ local function createGUI()
     Frame.Draggable = true
     Frame.Parent = ScreenGui
 
-    local creditLabel = Instance.new("TextLabel")
-    creditLabel.Size = UDim2.new(0, 180, 0, 20)
-    creditLabel.Position = UDim2.new(0, 10, 0, 0)
-    creditLabel.BackgroundTransparency = 1
-    creditLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    creditLabel.TextScaled = true
-    creditLabel.Text = "Welcome " .. Players.LocalPlayer.Name
-    creditLabel.Parent = Frame
+    local uiGradient = Instance.new("UIGradient")
+    uiGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+    }
+    uiGradient.Rotation = 90
+    uiGradient.Parent = Frame
 
-    createButton("AimlockToggle", 30, "Aimlock: OFF", function(button)
+    local welcomeFrame = Instance.new("Frame")
+    welcomeFrame.Name = "WelcomeFrame"
+    welcomeFrame.Size = UDim2.new(0, 180, 0, 20)
+    welcomeFrame.Position = UDim2.new(0, 10, 0, 0)
+    welcomeFrame.BackgroundTransparency = 1
+    welcomeFrame.Parent = Frame
+
+    local horizontalListLayout = Instance.new("UIListLayout")
+    horizontalListLayout.FillDirection = Enum.FillDirection.Horizontal
+    horizontalListLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    horizontalListLayout.Padding = UDim.new(0, 5)
+    horizontalListLayout.Parent = welcomeFrame
+
+    local iconImage = Instance.new("ImageLabel")
+    iconImage.Size = UDim2.new(0, 18, 0, 18)
+    iconImage.Image = customIconAssetId
+    iconImage.BackgroundTransparency = 1
+    iconImage.Parent = welcomeFrame
+
+    local welcomeTextLabel = Instance.new("TextLabel")
+    welcomeTextLabel.Size = UDim2.new(1, -23, 1, 0)
+    welcomeTextLabel.Text = "Welcome " .. Players.LocalPlayer.Name
+    welcomeTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    welcomeTextLabel.TextScaled = true
+    welcomeTextLabel.BackgroundTransparency = 1
+    welcomeTextLabel.TextXAlignment = Enum.TextXAlignment.Left
+    welcomeTextLabel.Font = guiFont
+    welcomeTextLabel.Parent = welcomeFrame
+
+    local aimlockButton = createButton("AimlockToggle", 30, "Aimlock: OFF", function(button)
         aimbotEnabled = not aimbotEnabled
         button.Text = aimbotEnabled and "Aimlock: ON" or "Aimlock: OFF"
     end)
+    
+    table.insert(connections, aimlockButton.MouseButton2Click:Connect(function()
+        if aimPartPopoutFrame then
+            aimPartPopoutFrame.Visible = not aimPartPopoutFrame.Visible
+            if aimPartPopoutFrame.Visible then
+                local absX, absY = aimlockButton.AbsolutePosition.X, aimlockButton.AbsolutePosition.Y
+                local sizeX, sizeY = aimlockButton.AbsoluteSize.X, aimlockButton.AbsoluteSize.Y
+                
+                aimPartPopoutFrame.Position = UDim2.new(0, absX - aimPartPopoutFrame.AbsoluteSize.X - 30, 0, absY) 
+                
+                if utilityPopoutFrame then utilityPopoutFrame.Visible = false end
+            end
+        end
+    end))
 
-    createButton("AimPartToggle", 60, "Aim Part: " .. aimPartsOptions[currentAimPartIndex], function(button)
-        currentAimPartIndex = currentAimPartIndex + 1
-        if currentAimPartIndex > #aimPartsOptions then currentAimPartIndex = 1 end
-        lockPart = aimPartsOptions[currentAimPartIndex]
-        button.Text = "Aim Part: " .. aimPartsOptions[currentAimPartIndex]
-    end)
-
-    createButton("TriggerbotToggle", 90, "Triggerbot: OFF", function(button)
+    createButton("TriggerbotToggle", 60, "Triggerbot: OFF", function(button)
         triggerbotEnabled = not triggerbotEnabled
         button.Text = triggerbotEnabled and "Triggerbot: ON" or "Triggerbot: OFF"
     end)
 
-    createButton("BulletTpToggle", 120, "Bullet TP: OFF", function(button)
-        bulletTpEnabled = not bulletTpEnabled
-        button.Text = bulletTpEnabled and "Bullet TP: ON" or "Bullet TP: OFF"
+    -- NEW: Prediction Toggle (added back)
+    local predictionButton = createButton("PredictionToggle", 90, "Prediction: " .. currentPredictionAmount .. "s", function(button)
+        currentPredictionIndex = currentPredictionIndex + 1
+        if currentPredictionIndex > #predictionOptions then currentPredictionIndex = 1 end
+        currentPredictionAmount = predictionOptions[currentPredictionIndex]
+        button.Text = "Prediction: " .. currentPredictionAmount .. "s"
     end)
 
-    createButton("AutoReloadToggle", 150, "Auto Reload: OFF", function(button)
-        autoReloadEnabled = not autoReloadEnabled
-        button.Text = autoReloadEnabled and "Auto Reload: ON" or "Auto Reload: OFF"
-    end)
-
-    createButton("SpeedHackToggle", 180, "Speed Hack: OFF", function(button)
+    createButton("SpeedHackToggle", 120, "Speed Hack: OFF", function(button)
         speedHackEnabled = not speedHackEnabled
         button.Text = speedHackEnabled and "Speed Hack: ON" or "Speed Hack: OFF"
     end)
 
-    createButton("NoRecoilToggle", 210, "No Recoil: OFF", function(button)
-        noRecoilEnabled = not noRecoilEnabled
-        button.Text = noRecoilEnabled and "No Recoil: ON" or "No Recoil: OFF"
-    end)
-
-    createButton("ESPToggle", 240, "ESP: ON", function(button)
+    createButton("ESPToggle", 150, "ESP: ON", function(button)
         espEnabled = not espEnabled
         button.Text = espEnabled and "ESP: ON" or "ESP: OFF"
         resetAllESP()
     end)
 
-    createButton("ThemeToggle", 270, "Change ESP Color", function(button)
+    createButton("ThemeToggle", 180, "Change ESP Color", function(button)
         currentThemeIndex = currentThemeIndex + 1
         if currentThemeIndex > #themeColors then currentThemeIndex = 1 end
         themeColor = themeColors[currentThemeIndex]
         resetAllESP()
     end)
+    
+    local utilityButton = createButton("UtilityToggle", 210, "Utility", function(button)
+        if utilityPopoutFrame then
+            utilityPopoutFrame.Visible = not utilityPopoutFrame.Visible
+            if utilityPopoutFrame.Visible then
+                local absX, absY = button.AbsolutePosition.X, button.AbsolutePosition.Y
+                local sizeX, sizeY = button.AbsoluteSize.X, button.AbsoluteSize.Y
+                utilityPopoutFrame.Position = UDim2.new(0, absX - utilityPopoutFrame.AbsoluteSize.X - 30, 0, absY)
 
-    rebindButton = createButton("RebindKey", 300, "Menu Key: " .. toggleKey.Name, function(button)
+                if aimPartPopoutFrame then aimPartPopoutFrame.Visible = false end
+            end
+        end
+    end)
+
+    rebindButton = createButton("RebindKey", 240, "Menu Key: " .. toggleKey.Name, function(button)
         waitingForKeyBind = true
         button.Text = "Press new key..."
     end)
 
     local distanceLabel = Instance.new("TextLabel")
     distanceLabel.Size = UDim2.new(0, 180, 0, 20)
-    distanceLabel.Position = UDim2.new(0, 10, 0, 330)
+    distanceLabel.Position = UDim2.new(0, 10, 0, 270)
     distanceLabel.BackgroundTransparency = 1
     distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    distanceLabel.TextScaled = true
+    distanceLabel.TextSize = 14
     distanceLabel.Text = "Distance: N/A"
+    distanceLabel.Font = guiFont
     distanceLabel.Parent = Frame
 
-    RunService.RenderStepped:Connect(function()
+    table.insert(connections, RunService.RenderStepped:Connect(function()
         distanceLabel.Text = "Distance: " .. tostring(currentTargetDistance) .. "m"
+    end))
+
+    Frame.Size = UDim2.new(0, 200, 0, 300) -- Adjusted frame height to fit new button layout
+
+
+    --- AIM PART POP-OUT FRAME ---
+    aimPartPopoutFrame = Instance.new("Frame")
+    aimPartPopoutFrame.Name = "AimPartPopout"
+    aimPartPopoutFrame.Size = UDim2.new(0, 120, 0, 22 * #aimPartsOptions + (2 * (#aimPartsOptions -1)) + 4)
+    aimPartPopoutFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    aimPartPopoutFrame.BorderSizePixel = 2
+    aimPartPopoutFrame.BorderColor3 = themeColor
+    aimPartPopoutFrame.Active = true
+    aimPartPopoutFrame.Draggable = false
+    aimPartPopoutFrame.Visible = false
+    aimPartPopoutFrame.Parent = ScreenGui
+
+    local popoutUIGradient = Instance.new("UIGradient")
+    popoutUIGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+    }
+    popoutUIGradient.Rotation = 90
+    popoutUIGradient.Parent = aimPartPopoutFrame
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.FillDirection = Enum.FillDirection.Vertical
+    listLayout.Padding = UDim.new(0, 4)
+    listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    listLayout.Parent = aimPartPopoutFrame
+
+    for i, partName in ipairs(aimPartsOptions) do
+        createPopoutButton(aimPartPopoutFrame, partName .. "Button", partName, function()
+            currentAimPartIndex = i
+            lockPart = aimPartsOptions[currentAimPartIndex]
+            aimlockButton.Text = (aimbotEnabled and "Aimlock: ON" or "Aimlock: OFF") .. " (" .. aimPartsOptions[currentAimPartIndex] .. ")"
+            aimPartPopoutFrame.Visible = false
+        end)
+    end
+
+    --- UTILITY POP-OUT FRAME ---
+    utilityPopoutFrame = Instance.new("Frame")
+    utilityPopoutFrame.Name = "UtilityPopout"
+    utilityPopoutFrame.Size = UDim2.new(0, 150, 0, 22 * 4 + (2 * 3) + 4)
+    utilityPopoutFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    utilityPopoutFrame.BorderSizePixel = 2
+    utilityPopoutFrame.BorderColor3 = themeColor
+    utilityPopoutFrame.Active = true
+    utilityPopoutFrame.Draggable = false
+    utilityPopoutFrame.Visible = false
+    utilityPopoutFrame.Parent = ScreenGui
+
+    local utilityPopoutUIGradient = Instance.new("UIGradient")
+    utilityPopoutUIGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+    }
+    utilityPopoutUIGradient.Rotation = 90
+    utilityPopoutUIGradient.Parent = utilityPopoutFrame
+
+    local utilityListLayout = Instance.new("UIListLayout")
+    utilityListLayout.FillDirection = Enum.FillDirection.Vertical
+    utilityListLayout.Padding = UDim.new(0, 4)
+    utilityListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    utilityListLayout.Parent = utilityPopoutFrame
+
+    -- UTILITY POP-OUT BUTTONS
+    local function createUtilityPopoutButton(name, text, callback)
+        local button = Instance.new("TextButton")
+        button.Name = name
+        button.Size = UDim2.new(1, 0, 0, 22)
+        button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+        button.BorderSizePixel = 2
+        button.BorderColor3 = themeColor
+        button.Text = text
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        button.TextScaled = true
+        button.Font = guiFont
+        button.Parent = utilityPopoutFrame
+        table.insert(connections, button.MouseButton1Click:Connect(function()
+            callback(button)
+        end))
+    end
+
+    createUtilityPopoutButton("FlyToggle", "Fly: OFF", function(button)
+        toggleFly()
+        button.Text = flyEnabled and "Fly: ON" or "Fly: OFF"
     end)
+    
+    createUtilityPopoutButton("CustomMix", "Custom Mix", function()
+        applyCustomMix()
+    end)
+    
+    createUtilityPopoutButton("FacesEtc", "Faces, etc.", function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/RobloxHackerProLuaStuff/avatar-editor-thing/main/headless.lua"))()
+    end)
+
+    createUtilityPopoutButton("ResetAnims", "Reset Animations", function()
+        resetToDefaultAnimations()
+    end)
+    
+    createUtilityPopoutButton("Rejoin", "Rejoin Server", function()
+        TeleportService:Teleport(game.PlaceId)
+    end)
+    
+    -- Final Frame sizing based on content
+    utilityPopoutFrame.Size = UDim2.new(0, 150, 0, 22 * utilityListLayout.Parent:GetChildrenCount() + (2 * (utilityListLayout.Parent:GetChildrenCount() - 1)) + 4)
+    
+    Frame.Size = UDim2.new(0, 200, 0, 298 + 30) -- Added some space for the new button
 end
 
 createGUI()
